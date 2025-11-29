@@ -1,0 +1,31 @@
+{
+  "name": "filipino-emigrants-app",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "devDependencies": {
+    "vite": "^7.1.6"
+  },
+  "dependencies": {
+    "@emotion/react": "^11.14.0",
+    "@emotion/styled": "^11.14.1",
+    "@mui/material": "^7.3.4",
+    "d3-scale": "^4.0.2",
+    "firebase": "^12.3.0",
+    "leaflet": "^1.9.4",
+    "lucide-react": "^0.553.0",
+    "papaparse": "^5.5.3",
+    "react": "^19.1.1",
+    "react-dom": "^19.1.1",
+    "react-firebase-hooks": "^5.1.1",
+    "react-leaflet": "^5.0.0",
+    "react-router-dom": "^7.9.4",
+    "react-simple-maps": "^3.0.0",
+    "recharts": "^3.2.1"
+  }
+}
