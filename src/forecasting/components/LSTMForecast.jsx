@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { cleanData, sortData, normalizeData, denormalize, createSequences, calculateMetrics } from '../utils/dataPreparation';
-import { buildLSTMModel, trainLSTMModel, predictLSTM, saveLSTMModel, loadLSTMModel, deleteLSTMModel, downloadLSTMModel } from '../models/lstmModel';
+import { buildLSTMModel, trainLSTMModel, predictLSTM, saveLSTMModel, loadLSTMModel, deleteLSTMModel, downloadLSTMModel, uploadLSTMModelFromJSON } from '../models/lstmModel';
 import './ForecastPanel.css';
 
 export default function LSTMForecast({ data, maleData, femaleData }) {
@@ -19,6 +19,7 @@ export default function LSTMForecast({ data, maleData, femaleData }) {
   const LOOKBACK = 3;
   const FEATURES = ['emigrants'];
   const TARGET = 'emigrants';
+  const fileInputRef = useRef(null);
 
   const handleTrain = async () => {
     // Basic data guard to avoid silent failures
@@ -160,6 +161,44 @@ export default function LSTMForecast({ data, maleData, femaleData }) {
     }
   };
 
+  const handleUploadClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleUploadModel = async (event) => {
+    const files = event.target.files;
+    if (!files || !files.length) return;
+
+    const jsonFile = files[0];
+    if (!jsonFile.name.endsWith('.json')) {
+      alert('Please select a JSON file (e.g., lstm-model-complete.json)');
+      event.target.value = '';
+      return;
+    }
+
+    try {
+      setUiError('');
+      const result = await uploadLSTMModelFromJSON(jsonFile);
+
+      if (result.model && result.metadata) {
+        setModel(result.model);
+        setMetadata(result.metadata);
+        if (result.metadata.metrics) {
+          setMetrics(result.metadata.metrics);
+        }
+        alert('LSTM model uploaded and restored successfully!');
+      } else {
+        throw new Error('Failed to restore model from file');
+      }
+    } catch (error) {
+      console.error('Error uploading model:', error);
+      setUiError(error.message);
+      alert('Error uploading model: ' + error.message);
+    } finally {
+      event.target.value = '';
+    }
+  };
+
   const handleForecast = async () => {
     if (!model || !metadata) {
       alert('Please train or load a model first.');
@@ -250,12 +289,22 @@ export default function LSTMForecast({ data, maleData, femaleData }) {
         <button onClick={handleLoadModel} disabled={isTraining}>
           Load Model
         </button>
+        <button onClick={handleUploadClick} disabled={isTraining}>
+          Upload Model
+        </button>
         <button onClick={handleDeleteModel} disabled={isTraining || !model}>
           Delete Model
         </button>
         <button onClick={handleDownloadModel} disabled={isTraining || !model}>
           Download Model
         </button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".json"
+          onChange={handleUploadModel}
+          style={{ display: 'none' }}
+        />
       </div>
 
       {isTraining && trainingProgress && (

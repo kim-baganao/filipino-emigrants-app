@@ -149,7 +149,7 @@ export async function downloadLSTMModel(model, metadata) {
   // Combine everything into one export object
   const fullExport = {
     ...metadata,
-    modelArchitecture: modelJSON,
+    modelConfig: modelJSON,
     weightsData: weightsData
   };
 
@@ -174,7 +174,7 @@ export async function uploadLSTMModelFromJSON(jsonFile) {
   const fullExport = JSON.parse(text);
   
   // Extract metadata (remove model-specific fields)
-  const { modelArchitecture, weightsData, ...metadata } = fullExport;
+  const { modelConfig, weightsData, ...metadata } = fullExport;
   
   // Store metadata in localStorage
   localStorage.setItem('lstm-metadata', JSON.stringify(metadata));
@@ -182,12 +182,38 @@ export async function uploadLSTMModelFromJSON(jsonFile) {
   let model = null;
   
   // Reconstruct model from exported data
-  if (modelArchitecture && weightsData) {
+  if (modelConfig && weightsData && weightsData.length > 0) {
     try {
-      // Reconstruct model from architecture
-      model = await tf.models.modelFromJSON(modelArchitecture);
+      console.log('Reconstructing model with architecture:', modelConfig);
       
-      // Restore weights
+      // Rebuild the model with the same architecture as the original
+      // This is a Sequential model with LSTM(80) -> LSTM(20) -> Dense(1)
+      model = tf.sequential({
+        layers: [
+          tf.layers.lstm({
+            units: 80,
+            returnSequences: true,
+            inputShape: [3, 1],
+            dropout: 0
+          }),
+          tf.layers.lstm({
+            units: 20,
+            dropout: 0
+          }),
+          tf.layers.dense({
+            units: 1
+          })
+        ]
+      });
+      
+      // Compile model with same settings as original
+      model.compile({
+        optimizer: tf.train.adam(0.001),
+        loss: 'meanSquaredError',
+        metrics: ['mae']
+      });
+      
+      // Restore weights from saved data
       const weightTensors = weightsData.map(w => 
         tf.tensor(w.data, w.shape)
       );
