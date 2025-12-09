@@ -9,6 +9,7 @@ import DensityPlotPage from "./pages/DensityPlotPage";
 import TreemapPage from "./pages/TreemapPage";
 import HorizontalChartPage from "./pages/HorizontalChartPage";
 import FlowMapPage from "./pages/FlowMapPage";
+import ForecastingPage from "./forecasting/ForecastingPage";
 
 // Navigation items configuration
 const navigationItems = [
@@ -19,6 +20,7 @@ const navigationItems = [
   { path: "/treemap-chart", label: "Occupation", icon: Briefcase },
   { path: "/horizontal-bar-chart", label: "Education", icon: GraduationCap },
   { path: "/flow-map", label: "Major Countries", icon: Globe },
+  { path: "/forecasting", label: "Forecasting", icon: TrendingUp },
 ];
 
 // Dashboard Home Component
@@ -338,6 +340,7 @@ function AppContent() {
             <Route path="/treemap-chart" element={<TreemapPage />} />
             <Route path="/horizontal-bar-chart" element={<HorizontalChartPage />} />
             <Route path="/flow-map" element={<FlowMapPage />} />
+            <Route path="/forecasting" element={<ForecastingPage />} />
           </Routes>
         </main>
 
