@@ -3,7 +3,7 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Responsi
 import { getEmigrantsBySex } from '../services/emigrantsService'
 import './ForecastingPage.css'
 
-// Simple error boundary to keep the page from going blank if the LSTM component throws
+// Simple error boundary to keep the page from going blank if the model components throw
 class LSTMErrorBoundary extends React.Component {
   constructor(props) {
     super(props)
@@ -27,6 +27,29 @@ class LSTMErrorBoundary extends React.Component {
   }
 }
 
+class MLPErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props)
+    this.state = { hasError: false, message: '' }
+  }
+  static getDerivedStateFromError(error) {
+    return { hasError: true, message: error?.message || 'MLP component error' }
+  }
+  componentDidCatch(error, info) {
+    console.error('MLP render error:', error, info)
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{ background: '#fee', padding: '12px', borderRadius: '8px', color: '#b91c1c', marginTop: '12px' }}>
+          <p style={{ margin: 0 }}><strong>MLP crashed:</strong> {this.state.message}</p>
+        </div>
+      )
+    }
+    return this.props.children
+  }
+}
+
 export default function ForecastingPage() {
   console.log('ForecastingPage component rendering...')
   const [data, setData] = useState([])
@@ -37,6 +60,9 @@ export default function ForecastingPage() {
   const [LSTMComponent, setLSTMComponent] = useState(null)
   const [modelLoading, setModelLoading] = useState(false)
   const [modelError, setModelError] = useState(null)
+  const [MLPComponent, setMLPComponent] = useState(null)
+  const [mlpLoading, setMlpLoading] = useState(false)
+  const [mlpError, setMlpError] = useState(null)
 
   useEffect(() => {
     console.log('ForecastingPage useEffect triggered')
@@ -91,6 +117,20 @@ export default function ForecastingPage() {
       setModelError(err.message)
     } finally {
       setModelLoading(false)
+    }
+  }
+
+  const loadMLP = async () => {
+    setMlpLoading(true)
+    setMlpError(null)
+    try {
+      const mod = await import('./components/MLPForecast')
+      setMLPComponent(() => mod.default)
+    } catch (err) {
+      console.error('Error loading MLP component:', err)
+      setMlpError(err.message)
+    } finally {
+      setMlpLoading(false)
     }
   }
 
@@ -195,29 +235,62 @@ export default function ForecastingPage() {
       <section className="forecast-section">
         <div className="chart-container">
           <h3>Forecast models</h3>
-          {!LSTMComponent && (
-            <button
-              onClick={loadLSTM}
-              disabled={modelLoading}
-              style={{ padding: '10px 16px', borderRadius: '6px', border: 'none', background: '#3b82f6', color: 'white', cursor: 'pointer' }}
-            >
-              {modelLoading ? 'Loading LSTM...' : 'Load LSTM model'}
-            </button>
-          )}
 
-          {modelError && <p style={{ color: '#c00', marginTop: '8px' }}>Model load error: {modelError}</p>}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            <div style={{ padding: '12px', border: '1px solid #e5e7eb', borderRadius: '8px', background: '#fff' }}>
+              <h4 style={{ marginTop: 0 }}>LSTM Model</h4>
+              {!LSTMComponent && (
+                <button
+                  onClick={loadLSTM}
+                  disabled={modelLoading}
+                  style={{ padding: '10px 16px', borderRadius: '6px', border: 'none', background: '#3b82f6', color: 'white', cursor: 'pointer' }}
+                >
+                  {modelLoading ? 'Loading LSTM...' : 'Load LSTM model'}
+                </button>
+              )}
 
-          {LSTMComponent && (
-            <div style={{ marginTop: '16px' }}>
-              <LSTMErrorBoundary>
-                <LSTMComponent data={data} maleData={maleData} femaleData={femaleData} />
-              </LSTMErrorBoundary>
+              {modelError && <p style={{ color: '#c00', marginTop: '8px' }}>Model load error: {modelError}</p>}
+
+              {LSTMComponent && (
+                <div style={{ marginTop: '16px' }}>
+                  <LSTMErrorBoundary>
+                    <LSTMComponent data={data} maleData={maleData} femaleData={femaleData} />
+                  </LSTMErrorBoundary>
+                </div>
+              )}
+
+              {!LSTMComponent && !modelLoading && (
+                <p style={{ color: '#555', marginTop: '12px' }}>Click to load the LSTM model.</p>
+              )}
             </div>
-          )}
 
-          {!LSTMComponent && !modelLoading && (
-            <p style={{ color: '#555', marginTop: '12px' }}>Click to load the LSTM model.</p>
-          )}
+            <div style={{ padding: '12px', border: '1px solid #e5e7eb', borderRadius: '8px', background: '#fff' }}>
+              <h4 style={{ marginTop: 0 }}>MLP Model</h4>
+              {!MLPComponent && (
+                <button
+                  onClick={loadMLP}
+                  disabled={mlpLoading}
+                  style={{ padding: '10px 16px', borderRadius: '6px', border: 'none', background: '#10b981', color: 'white', cursor: 'pointer' }}
+                >
+                  {mlpLoading ? 'Loading MLP...' : 'Load MLP model'}
+                </button>
+              )}
+
+              {mlpError && <p style={{ color: '#c00', marginTop: '8px' }}>Model load error: {mlpError}</p>}
+
+              {MLPComponent && (
+                <div style={{ marginTop: '16px' }}>
+                  <MLPErrorBoundary>
+                    <MLPComponent data={data} maleData={maleData} femaleData={femaleData} />
+                  </MLPErrorBoundary>
+                </div>
+              )}
+
+              {!MLPComponent && !mlpLoading && (
+                <p style={{ color: '#555', marginTop: '12px' }}>Click to load the MLP model.</p>
+              )}
+            </div>
+          </div>
         </div>
       </section>
     </div>

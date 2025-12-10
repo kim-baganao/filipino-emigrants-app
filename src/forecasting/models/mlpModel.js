@@ -165,3 +165,124 @@ export async function downloadMLPModel(model, metadata) {
   a.click();
   URL.revokeObjectURL(url);
 }
+
+/**
+ * Upload MLP model from downloaded files (metadata JSON, model JSON, weights BIN)
+ * Reconstructs and restores the model from these files
+ */
+export async function uploadMLPModelFromJSON(metadataFile, modelJsonFile, weightsFile) {
+  if (!metadataFile) throw new Error('Metadata file required');
+
+  let model = null;
+  let metadata = null;
+  let modelJsonData = null;
+
+  try {
+    // Parse metadata
+    const metadataText = await metadataFile.text();
+    metadata = JSON.parse(metadataText);
+    console.log('MLP metadata loaded');
+
+    // Store metadata
+    localStorage.setItem('mlp-metadata', JSON.stringify(metadata));
+
+    if (modelJsonFile && weightsFile) {
+      try {
+        console.log('Loading MLP model from provided files');
+
+        // Read model JSON
+        const modelJsonText = await modelJsonFile.text();
+        modelJsonData = JSON.parse(modelJsonText);
+        console.log('MLP model JSON data:', modelJsonData);
+
+        // Read weights binary
+        const weightsBinary = await weightsFile.arrayBuffer();
+        console.log('MLP weights binary size:', weightsBinary.byteLength);
+
+        // Extract layer configuration
+        const modelTopology = modelJsonData.modelTopology || modelJsonData;
+        const layers = [];
+
+        if (modelTopology.config && modelTopology.config.layers) {
+          for (let i = 0; i < modelTopology.config.layers.length; i++) {
+            const layerConfig = modelTopology.config.layers[i];
+            console.log(`Processing MLP layer ${i}:`, layerConfig.class_name);
+
+            if (layerConfig.class_name === 'Dense') {
+              const denseConfig = { ...layerConfig.config };
+              if (i === 0 && layerConfig.config.batch_input_shape) {
+                denseConfig.inputShape = layerConfig.config.batch_input_shape.slice(1);
+              }
+              layers.push(tf.layers.dense(denseConfig));
+            } else if (layerConfig.class_name === 'Dropout') {
+              layers.push(tf.layers.dropout({ ...layerConfig.config }));
+            }
+          }
+        }
+
+        // Fallback architecture if config missing
+        if (layers.length === 0) {
+          const lookback = metadata?.lookback || 3;
+          const featureCount = (metadata?.features?.length) || 1;
+          const inputSize = lookback * featureCount;
+          console.warn('Could not extract layers from config, using default MLP architecture');
+          layers.push(
+            tf.layers.dense({ units: 56, activation: 'tanh', inputShape: [inputSize] }),
+            tf.layers.dropout({ rate: 0.2 }),
+            tf.layers.dense({ units: 74, activation: 'tanh' }),
+            tf.layers.dropout({ rate: 0.2 }),
+            tf.layers.dense({ units: 1 })
+          );
+        }
+
+        model = tf.sequential({ layers });
+
+        // Compile model
+        model.compile({
+          optimizer: tf.train.adam(0.001),
+          loss: 'meanSquaredError',
+          metrics: ['mae']
+        });
+
+        // Load weights using weight specs
+        const weightSpecs = modelJsonData.weightSpecs || [];
+        console.log('MLP weight specs:', weightSpecs);
+        console.log('MLP expected weights:', model.getWeights().map(w => w.shape));
+
+        if (weightSpecs.length > 0) {
+          const weightTensors = [];
+          let offset = 0;
+          const view = new Float32Array(weightsBinary);
+
+          for (const spec of weightSpecs) {
+            const size = spec.shape.reduce((a, b) => a * b, 1);
+            const weightData = view.slice(offset, offset + size);
+            const tensor = tf.tensor(weightData, spec.shape);
+            weightTensors.push(tensor);
+            offset += size;
+          }
+
+          console.log('Setting MLP weights:', weightTensors.map(t => t.shape));
+          model.setWeights(weightTensors);
+          weightTensors.forEach(t => t.dispose());
+        } else {
+          console.warn('No weight specs found in MLP model JSON');
+        }
+
+        console.log('MLP model loaded successfully from files');
+      } catch (fileError) {
+        console.error('Error loading MLP model from files:', fileError);
+        console.error('MLP model JSON structure:', modelJsonData);
+        throw new Error('Failed to load MLP model from files: ' + fileError.message);
+      }
+    } else {
+      throw new Error('Model JSON and weights files are required');
+    }
+
+  } catch (error) {
+    console.error('Error in uploadMLPModelFromJSON:', error);
+    throw error;
+  }
+
+  return { model, metadata };
+}

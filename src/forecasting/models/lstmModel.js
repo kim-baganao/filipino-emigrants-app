@@ -11,21 +11,21 @@ import * as tf from '@tensorflow/tfjs';
  * - Optimizer: Adam (lr=0.001)
  * - Metrics: MAE (Mean Absolute Error)
  */
-export function buildLSTMModel(lookback = 10, features = 2) {
+export function buildLSTMModel(lookback = 7, features = 2) {
   const model = tf.sequential();
 
   // First LSTM layer
   model.add(tf.layers.lstm({
-    units: 80,
+    units: 50,
     returnSequences: true,
     inputShape: [lookback, features],
-    dropout: 0
+    dropout: 0.2
   }));
 
   // Second LSTM layer
   model.add(tf.layers.lstm({
-    units: 20,
-    dropout: 0
+    units: 50,
+    dropout: 0.2
   }));
 
   // Output layer
@@ -132,104 +132,151 @@ export async function deleteLSTMModel() {
 }
 
 /**
- * Download LSTM model as a single JSON file
- * Includes model architecture, weights, and metadata
+ * Download LSTM model files (3 separate files: 2 JSON + 1 BIN)
  */
 export async function downloadLSTMModel(model, metadata) {
-  // Get model architecture
-  const modelJSON = model.toJSON();
-  
-  // Get model weights as arrays
-  const weights = model.getWeights();
-  const weightsData = weights.map(w => ({
-    shape: w.shape,
-    data: Array.from(w.dataSync())
-  }));
-  
-  // Combine everything into one export object
-  const fullExport = {
-    ...metadata,
-    modelConfig: modelJSON,
-    weightsData: weightsData
-  };
+  // Save model using TensorFlow's downloads:// handler (creates 3 files automatically)
+  await model.save('downloads://emigrants-lstm-model');
 
-  // Download as single JSON file
-  const blob = new Blob([JSON.stringify(fullExport, null, 2)], { type: 'application/json' });
-  const url = URL.createObjectURL(blob);
+  // Download metadata separately as JSON
+  const metadataBlob = new Blob([JSON.stringify(metadata, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(metadataBlob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = 'lstm-model-complete.json';
+  a.download = 'lstm-metadata.json';
   a.click();
   URL.revokeObjectURL(url);
 }
 
 /**
- * Upload and restore LSTM model from single JSON file
- * Reconstructs model from architecture and weights
+ * Upload LSTM model from downloaded files (3 files: metadata JSON, model JSON, weights BIN)
+ * Reconstructs and restores the model from these files
  */
-export async function uploadLSTMModelFromJSON(jsonFile) {
-  if (!jsonFile) throw new Error('No file selected');
-  
-  const text = await jsonFile.text();
-  const fullExport = JSON.parse(text);
-  
-  // Extract metadata (remove model-specific fields)
-  const { modelConfig, weightsData, ...metadata } = fullExport;
-  
-  // Store metadata in localStorage
-  localStorage.setItem('lstm-metadata', JSON.stringify(metadata));
+export async function uploadLSTMModelFromJSON(metadataFile, modelJsonFile, weightsFile) {
+  if (!metadataFile) throw new Error('Metadata file required');
   
   let model = null;
+  let metadata = null;
+  let modelJsonData = null;
   
-  // Reconstruct model from exported data
-  if (modelConfig && weightsData && weightsData.length > 0) {
-    try {
-      console.log('Reconstructing model with architecture:', modelConfig);
-      
-      // Rebuild the model with the same architecture as the original
-      // This is a Sequential model with LSTM(80) -> LSTM(20) -> Dense(1)
-      model = tf.sequential({
-        layers: [
-          tf.layers.lstm({
-            units: 80,
-            returnSequences: true,
-            inputShape: [3, 1],
-            dropout: 0
-          }),
-          tf.layers.lstm({
-            units: 20,
-            dropout: 0
-          }),
-          tf.layers.dense({
-            units: 1
-          })
-        ]
-      });
-      
-      // Compile model with same settings as original
-      model.compile({
-        optimizer: tf.train.adam(0.001),
-        loss: 'meanSquaredError',
-        metrics: ['mae']
-      });
-      
-      // Restore weights from saved data
-      const weightTensors = weightsData.map(w => 
-        tf.tensor(w.data, w.shape)
-      );
-      model.setWeights(weightTensors);
-      
-      // Cleanup temporary tensors
-      weightTensors.forEach(t => t.dispose());
-      
-      console.log('Model successfully reconstructed from JSON file');
-    } catch (error) {
-      console.error('Error reconstructing model:', error);
-      throw new Error('Failed to reconstruct model from file: ' + error.message);
+  try {
+    // Parse metadata
+    const metadataText = await metadataFile.text();
+    metadata = JSON.parse(metadataText);
+    console.log('Metadata loaded successfully');
+    
+    // Store metadata in localStorage
+    localStorage.setItem('lstm-metadata', JSON.stringify(metadata));
+    
+    // Try to load model from provided files
+    if (modelJsonFile && weightsFile) {
+      try {
+        console.log('Loading model from provided files');
+        
+        // Read model JSON
+        const modelJsonText = await modelJsonFile.text();
+        modelJsonData = JSON.parse(modelJsonText);
+        console.log('Model JSON data:', modelJsonData);
+        
+        // Read weights binary
+        const weightsBinary = await weightsFile.arrayBuffer();
+        console.log('Weights binary size:', weightsBinary.byteLength);
+        
+        // Extract layer configuration from modelTopology
+        const modelTopology = modelJsonData.modelTopology || modelJsonData;
+        const layers = [];
+        
+        if (modelTopology.config && modelTopology.config.layers) {
+          // Rebuild model from layer configuration
+          for (let i = 0; i < modelTopology.config.layers.length; i++) {
+            const layerConfig = modelTopology.config.layers[i];
+            console.log(`Processing layer ${i}:`, layerConfig.class_name);
+            
+            if (layerConfig.class_name === 'LSTM') {
+              const lstmConfig = { ...layerConfig.config };
+              if (i === 0) {
+                lstmConfig.inputShape = layerConfig.config.batch_input_shape?.slice(1);
+              }
+              lstmConfig.returnSequences = layerConfig.config.return_sequences !== false;
+              layers.push(tf.layers.lstm(lstmConfig));
+            } else if (layerConfig.class_name === 'Dense') {
+              layers.push(tf.layers.dense({ ...layerConfig.config }));
+            }
+          }
+        }
+        
+        // If we couldn't extract layers, use default architecture
+        if (layers.length === 0) {
+          console.warn('Could not extract layers from config, using default architecture');
+          layers.push(
+            tf.layers.lstm({
+              units: 80,
+              returnSequences: true,
+              inputShape: [3, 1],
+              dropout: 0
+            }),
+            tf.layers.lstm({
+              units: 20,
+              dropout: 0
+            }),
+            tf.layers.dense({
+              units: 1
+            })
+          );
+        }
+        
+        // Create model with extracted layers
+        model = tf.sequential({ layers });
+        
+        // Compile model
+        model.compile({
+          optimizer: tf.train.adam(0.001),
+          loss: 'meanSquaredError',
+          metrics: ['mae']
+        });
+        
+        // Now load weights from binary file
+        // Parse weights from the binary data using weight specs
+        const weightSpecs = modelJsonData.weightSpecs || [];
+        console.log('Weight specs:', weightSpecs);
+        console.log('Expected weights:', model.getWeights().map(w => w.shape));
+        
+        if (weightSpecs.length > 0) {
+          // Reconstruct weights from binary data using weight specs
+          const weightTensors = [];
+          let offset = 0;
+          const view = new Float32Array(weightsBinary);
+          
+          for (const spec of weightSpecs) {
+            const size = spec.shape.reduce((a, b) => a * b, 1);
+            const weightData = view.slice(offset, offset + size);
+            const tensor = tf.tensor(weightData, spec.shape);
+            weightTensors.push(tensor);
+            offset += size;
+          }
+          
+          console.log('Setting weights:', weightTensors.map(t => t.shape));
+          model.setWeights(weightTensors);
+          weightTensors.forEach(t => t.dispose());
+        } else {
+          console.warn('No weight specs found in model JSON');
+        }
+        
+        console.log('Model loaded successfully from files');
+      } catch (fileError) {
+        console.error('Error loading model from files:', fileError);
+        console.error('Model JSON structure:', modelJsonData);
+        throw new Error('Failed to load model from files: ' + fileError.message);
+      }
+    } else {
+      throw new Error('Model JSON and weights files are required');
     }
-  } else {
-    throw new Error('Invalid model file format - missing architecture or weights');
+    
+  } catch (error) {
+    console.error('Error in uploadLSTMModelFromJSON:', error);
+    throw error;
   }
   
   return { model, metadata };
 }
+

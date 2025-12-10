@@ -19,7 +19,11 @@ export default function LSTMForecast({ data, maleData, femaleData }) {
   const LOOKBACK = 3;
   const FEATURES = ['emigrants'];
   const TARGET = 'emigrants';
-  const fileInputRef = useRef(null);
+  const metadataInputRef = useRef(null);
+  const modelJsonInputRef = useRef(null);
+  const weightsInputRef = useRef(null);
+  const [uploadedFiles, setUploadedFiles] = useState({ metadata: null, modelJson: null, weights: null });
+  const [showUploadUI, setShowUploadUI] = useState(false);
 
   const handleTrain = async () => {
     // Basic data guard to avoid silent failures
@@ -162,23 +166,62 @@ export default function LSTMForecast({ data, maleData, femaleData }) {
   };
 
   const handleUploadClick = () => {
-    fileInputRef.current?.click();
+    // Show the upload UI instead of opening dialogs
+    setShowUploadUI(true);
+    setUploadedFiles({ metadata: null, modelJson: null, weights: null });
   };
 
-  const handleUploadModel = async (event) => {
-    const files = event.target.files;
-    if (!files || !files.length) return;
+  const handleMetadataSelect = (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
 
-    const jsonFile = files[0];
-    if (!jsonFile.name.endsWith('.json')) {
-      alert('Please select a JSON file (e.g., lstm-model-complete.json)');
+    if (!file.name.includes('metadata') || !file.name.endsWith('.json')) {
+      alert('Please select the lstm-metadata.json file');
       event.target.value = '';
+      return;
+    }
+
+    setUploadedFiles(prev => ({ ...prev, metadata: file }));
+    event.target.value = '';
+  };
+
+  const handleModelJsonSelect = (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    if (!file.name.includes('model') || !file.name.endsWith('.json')) {
+      alert('Please select the emigrants-lstm-model.json file');
+      event.target.value = '';
+      return;
+    }
+
+    setUploadedFiles(prev => ({ ...prev, modelJson: file }));
+    event.target.value = '';
+  };
+
+  const handleWeightsSelect = (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    if (!file.name.endsWith('.bin')) {
+      alert('Please select the emigrants-lstm-model.weights.bin file');
+      event.target.value = '';
+      return;
+    }
+
+    setUploadedFiles(prev => ({ ...prev, weights: file }));
+    event.target.value = '';
+  };
+
+  const handleConfirmUpload = async () => {
+    if (!uploadedFiles.metadata || !uploadedFiles.modelJson || !uploadedFiles.weights) {
+      alert('Please select all 3 files before confirming');
       return;
     }
 
     try {
       setUiError('');
-      const result = await uploadLSTMModelFromJSON(jsonFile);
+      const result = await uploadLSTMModelFromJSON(uploadedFiles.metadata, uploadedFiles.modelJson, uploadedFiles.weights);
 
       if (result.model && result.metadata) {
         setModel(result.model);
@@ -187,16 +230,21 @@ export default function LSTMForecast({ data, maleData, femaleData }) {
           setMetrics(result.metadata.metrics);
         }
         alert('LSTM model uploaded and restored successfully!');
+        setShowUploadUI(false);
+        setUploadedFiles({ metadata: null, modelJson: null, weights: null });
       } else {
-        throw new Error('Failed to restore model from file');
+        throw new Error('Failed to restore model from files');
       }
     } catch (error) {
       console.error('Error uploading model:', error);
       setUiError(error.message);
       alert('Error uploading model: ' + error.message);
-    } finally {
-      event.target.value = '';
     }
+  };
+
+  const handleCancelUpload = () => {
+    setShowUploadUI(false);
+    setUploadedFiles({ metadata: null, modelJson: null, weights: null });
   };
 
   const handleForecast = async () => {
@@ -299,13 +347,90 @@ export default function LSTMForecast({ data, maleData, femaleData }) {
           Download Model
         </button>
         <input
-          ref={fileInputRef}
+          ref={metadataInputRef}
           type="file"
           accept=".json"
-          onChange={handleUploadModel}
+          onChange={handleMetadataSelect}
+          style={{ display: 'none' }}
+        />
+        <input
+          ref={modelJsonInputRef}
+          type="file"
+          accept=".json"
+          onChange={handleModelJsonSelect}
+          style={{ display: 'none' }}
+        />
+        <input
+          ref={weightsInputRef}
+          type="file"
+          accept=".bin"
+          onChange={handleWeightsSelect}
           style={{ display: 'none' }}
         />
       </div>
+
+      {showUploadUI && (
+        <div className="upload-modal-overlay">
+          <div className="upload-modal">
+            <h3>Upload Model Files</h3>
+            <p>Select the 3 files downloaded from your model</p>
+            
+            <div className="upload-file-section">
+              <label>1. Metadata JSON File</label>
+              <div className="file-input-wrapper">
+                <input
+                  ref={metadataInputRef}
+                  type="file"
+                  accept=".json"
+                  onChange={handleMetadataSelect}
+                />
+                <button onClick={() => metadataInputRef.current?.click()} className="file-select-btn">
+                  {uploadedFiles.metadata ? '✓ ' + uploadedFiles.metadata.name : 'Select lstm-metadata.json'}
+                </button>
+              </div>
+            </div>
+
+            <div className="upload-file-section">
+              <label>2. Model JSON File</label>
+              <div className="file-input-wrapper">
+                <input
+                  ref={modelJsonInputRef}
+                  type="file"
+                  accept=".json"
+                  onChange={handleModelJsonSelect}
+                />
+                <button onClick={() => modelJsonInputRef.current?.click()} className="file-select-btn">
+                  {uploadedFiles.modelJson ? '✓ ' + uploadedFiles.modelJson.name : 'Select emigrants-lstm-model.json'}
+                </button>
+              </div>
+            </div>
+
+            <div className="upload-file-section">
+              <label>3. Weights BIN File</label>
+              <div className="file-input-wrapper">
+                <input
+                  ref={weightsInputRef}
+                  type="file"
+                  accept=".bin"
+                  onChange={handleWeightsSelect}
+                />
+                <button onClick={() => weightsInputRef.current?.click()} className="file-select-btn">
+                  {uploadedFiles.weights ? '✓ ' + uploadedFiles.weights.name : 'Select emigrants-lstm-model.weights.bin'}
+                </button>
+              </div>
+            </div>
+
+            <div className="upload-modal-actions">
+              <button onClick={handleConfirmUpload} className="confirm-btn" disabled={!uploadedFiles.metadata || !uploadedFiles.modelJson || !uploadedFiles.weights}>
+                Confirm Upload
+              </button>
+              <button onClick={handleCancelUpload} className="cancel-btn">
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {isTraining && trainingProgress && (
         <div className="training-progress">

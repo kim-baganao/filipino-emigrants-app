@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { cleanData, sortData, normalizeData, denormalize, createSequences, calculateMetrics } from '../utils/dataPreparation';
-import { buildMLPModel, trainMLPModel, predictMLP, saveMLPModel, loadMLPModel, deleteMLPModel, downloadMLPModel } from '../models/mlpModel';
+import { buildMLPModel, trainMLPModel, predictMLP, saveMLPModel, loadMLPModel, deleteMLPModel, downloadMLPModel, uploadMLPModelFromJSON } from '../models/mlpModel';
 import './ForecastPanel.css';
 
 export default function MLPForecast({ data, maleData, femaleData }) {
@@ -13,12 +13,21 @@ export default function MLPForecast({ data, maleData, femaleData }) {
   const [forecastYears, setForecastYears] = useState(5);
   const [forecasts, setForecasts] = useState([]);
   const [validationResults, setValidationResults] = useState([]);
+  const [uiError, setUiError] = useState('');
+  const [uiInfo, setUiInfo] = useState('');
+  const metadataInputRef = useRef(null);
+  const modelJsonInputRef = useRef(null);
+  const weightsInputRef = useRef(null);
+  const [uploadedFiles, setUploadedFiles] = useState({ metadata: null, modelJson: null, weights: null });
+  const [showUploadUI, setShowUploadUI] = useState(false);
 
   const LOOKBACK = 3;
   const FEATURES = ['emigrants'];
   const TARGET = 'emigrants';
 
   const handleTrain = async () => {
+    setUiError('');
+    setUiInfo('Training MLP...');
     setIsTraining(true);
     setTrainingProgress({ epoch: 0, loss: 0, mae: 0 });
     setMetrics(null);
@@ -88,14 +97,17 @@ export default function MLPForecast({ data, maleData, femaleData }) {
       alert(`MLP model trained successfully!\nMAE: ${calculatedMetrics.mae}\nAccuracy: ${calculatedMetrics.accuracy}%`);
     } catch (error) {
       console.error('Training error:', error);
+      setUiError(error.message);
       alert('Error training model: ' + error.message);
     } finally {
       setIsTraining(false);
+      setUiInfo('');
     }
   };
 
   const handleLoadModel = async () => {
     try {
+      setUiError('');
       const result = await loadMLPModel();
       if (result) {
         setModel(result.model);
@@ -107,6 +119,7 @@ export default function MLPForecast({ data, maleData, femaleData }) {
       }
     } catch (error) {
       console.error('Error loading model:', error);
+      setUiError(error.message);
       alert('Error loading model: ' + error.message);
     }
   };
@@ -123,6 +136,7 @@ export default function MLPForecast({ data, maleData, femaleData }) {
       alert('MLP model deleted successfully!');
     } catch (error) {
       console.error('Error deleting model:', error);
+      setUiError(error.message);
       alert('Error deleting model: ' + error.message);
     }
   };
@@ -138,8 +152,90 @@ export default function MLPForecast({ data, maleData, femaleData }) {
       alert('MLP model files downloaded!');
     } catch (error) {
       console.error('Error downloading model:', error);
+      setUiError(error.message);
       alert('Error downloading model: ' + error.message);
     }
+  };
+
+  const handleUploadClick = () => {
+    setShowUploadUI(true);
+    setUploadedFiles({ metadata: null, modelJson: null, weights: null });
+  };
+
+  const handleMetadataSelect = (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    if (!file.name.includes('metadata') || !file.name.endsWith('.json')) {
+      alert('Please select the mlp-metadata.json file');
+      event.target.value = '';
+      return;
+    }
+
+    setUploadedFiles(prev => ({ ...prev, metadata: file }));
+    event.target.value = '';
+  };
+
+  const handleModelJsonSelect = (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    if (!file.name.includes('model') || !file.name.endsWith('.json')) {
+      alert('Please select the emigrants-mlp-model.json file');
+      event.target.value = '';
+      return;
+    }
+
+    setUploadedFiles(prev => ({ ...prev, modelJson: file }));
+    event.target.value = '';
+  };
+
+  const handleWeightsSelect = (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    if (!file.name.endsWith('.bin')) {
+      alert('Please select the emigrants-mlp-model.weights.bin file');
+      event.target.value = '';
+      return;
+    }
+
+    setUploadedFiles(prev => ({ ...prev, weights: file }));
+    event.target.value = '';
+  };
+
+  const handleConfirmUpload = async () => {
+    if (!uploadedFiles.metadata || !uploadedFiles.modelJson || !uploadedFiles.weights) {
+      alert('Please select all 3 files before confirming');
+      return;
+    }
+
+    try {
+      setUiError('');
+      const result = await uploadMLPModelFromJSON(uploadedFiles.metadata, uploadedFiles.modelJson, uploadedFiles.weights);
+
+      if (result.model && result.metadata) {
+        setModel(result.model);
+        setMetadata(result.metadata);
+        if (result.metadata.metrics) {
+          setMetrics(result.metadata.metrics);
+        }
+        alert('MLP model uploaded and restored successfully!');
+        setShowUploadUI(false);
+        setUploadedFiles({ metadata: null, modelJson: null, weights: null });
+      } else {
+        throw new Error('Failed to restore model from files');
+      }
+    } catch (error) {
+      console.error('Error uploading model:', error);
+      setUiError(error.message);
+      alert('Error uploading model: ' + error.message);
+    }
+  };
+
+  const handleCancelUpload = () => {
+    setShowUploadUI(false);
+    setUploadedFiles({ metadata: null, modelJson: null, weights: null });
   };
 
   const handleForecast = async () => {
@@ -215,6 +311,13 @@ export default function MLPForecast({ data, maleData, femaleData }) {
     <div className="forecast-panel mlp-panel">
       <h2>MLP Forecast Results (Male, Female, Total)</h2>
 
+      {uiError && (
+        <div className="alert error">{uiError}</div>
+      )}
+      {uiInfo && (
+        <div className="alert info">{uiInfo}</div>
+      )}
+
       <div className="control-buttons">
         <button onClick={handleTrain} disabled={isTraining}>
           {isTraining ? 'Training...' : 'Train MLP Model'}
@@ -222,13 +325,100 @@ export default function MLPForecast({ data, maleData, femaleData }) {
         <button onClick={handleLoadModel} disabled={isTraining}>
           Load Model
         </button>
+        <button onClick={handleUploadClick} disabled={isTraining}>
+          Upload Model
+        </button>
         <button onClick={handleDeleteModel} disabled={isTraining || !model}>
           Delete Model
         </button>
         <button onClick={handleDownloadModel} disabled={isTraining || !model}>
           Download Model
         </button>
+        <input
+          ref={metadataInputRef}
+          type="file"
+          accept=".json"
+          onChange={handleMetadataSelect}
+          style={{ display: 'none' }}
+        />
+        <input
+          ref={modelJsonInputRef}
+          type="file"
+          accept=".json"
+          onChange={handleModelJsonSelect}
+          style={{ display: 'none' }}
+        />
+        <input
+          ref={weightsInputRef}
+          type="file"
+          accept=".bin"
+          onChange={handleWeightsSelect}
+          style={{ display: 'none' }}
+        />
       </div>
+
+      {showUploadUI && (
+        <div className="upload-modal-overlay">
+          <div className="upload-modal">
+            <h3>Upload Model Files</h3>
+            <p>Select the 3 files downloaded from your model</p>
+            
+            <div className="upload-file-section">
+              <label>1. Metadata JSON File</label>
+              <div className="file-input-wrapper">
+                <input
+                  ref={metadataInputRef}
+                  type="file"
+                  accept=".json"
+                  onChange={handleMetadataSelect}
+                />
+                <button onClick={() => metadataInputRef.current?.click()} className="file-select-btn">
+                  {uploadedFiles.metadata ? '✓ ' + uploadedFiles.metadata.name : 'Select mlp-metadata.json'}
+                </button>
+              </div>
+            </div>
+
+            <div className="upload-file-section">
+              <label>2. Model JSON File</label>
+              <div className="file-input-wrapper">
+                <input
+                  ref={modelJsonInputRef}
+                  type="file"
+                  accept=".json"
+                  onChange={handleModelJsonSelect}
+                />
+                <button onClick={() => modelJsonInputRef.current?.click()} className="file-select-btn">
+                  {uploadedFiles.modelJson ? '✓ ' + uploadedFiles.modelJson.name : 'Select emigrants-mlp-model.json'}
+                </button>
+              </div>
+            </div>
+
+            <div className="upload-file-section">
+              <label>3. Weights BIN File</label>
+              <div className="file-input-wrapper">
+                <input
+                  ref={weightsInputRef}
+                  type="file"
+                  accept=".bin"
+                  onChange={handleWeightsSelect}
+                />
+                <button onClick={() => weightsInputRef.current?.click()} className="file-select-btn">
+                  {uploadedFiles.weights ? '✓ ' + uploadedFiles.weights.name : 'Select emigrants-mlp-model.weights.bin'}
+                </button>
+              </div>
+            </div>
+
+            <div className="upload-modal-actions">
+              <button onClick={handleConfirmUpload} className="confirm-btn" disabled={!uploadedFiles.metadata || !uploadedFiles.modelJson || !uploadedFiles.weights}>
+                Confirm Upload
+              </button>
+              <button onClick={handleCancelUpload} className="cancel-btn">
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {isTraining && trainingProgress && (
         <div className="training-progress">
@@ -287,16 +477,21 @@ export default function MLPForecast({ data, maleData, femaleData }) {
                     </tr>
                   </thead>
                   <tbody>
-                    {validationResults.map((row, i) => (
-                      <tr key={i}>
-                        <td>{row.year}</td>
-                        <td>{row.actual.toLocaleString()}</td>
-                        <td>{row.predicted.toLocaleString()}</td>
-                        <td className={row.error >= 0 ? 'error-positive' : 'error-negative'}>
-                          {row.error >= 0 ? '+' : ''}{row.error.toLocaleString()}
-                        </td>
-                      </tr>
-                    ))}
+                    {validationResults.map((row, i) => {
+                      const actual = Number.isFinite(row.actual) ? row.actual.toLocaleString() : '—';
+                      const predicted = Number.isFinite(row.predicted) ? row.predicted.toLocaleString() : '—';
+                      const error = Number.isFinite(row.error) ? row.error : null;
+                      return (
+                        <tr key={i}>
+                          <td>{row.year}</td>
+                          <td>{actual}</td>
+                          <td>{predicted}</td>
+                          <td className={error !== null && error >= 0 ? 'error-positive' : 'error-negative'}>
+                            {error === null ? '—' : `${error >= 0 ? '+' : ''}${error.toLocaleString()}`}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -394,83 +589,19 @@ export default function MLPForecast({ data, maleData, femaleData }) {
                 </tr>
               </thead>
               <tbody>
-                {forecasts.map((f, i) => (
-                  <tr key={i}>
-                    <td>{f.year}</td>
-                    <td>{f.male?.toLocaleString() || '—'}</td>
-                    <td>{f.female?.toLocaleString() || '—'}</td>
-                    <td>{f.total?.toLocaleString() || '—'}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </>
-      )}
-
-      {forecasts.length > 0 && (
-        <>
-          <div className="chart-container">
-            <h3>MLP: Historical + Forecast</h3>
-            <ResponsiveContainer width="100%" height={400}>
-              <LineChart
-                data={chartData}
-                margin={{ top: 20, right: 30, left: 20, bottom: 20 }}
-              >
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="year" />
-                <YAxis
-                  label={{ value: 'Emigrants', angle: -90, position: 'insideLeft' }}
-                />
-                <Tooltip />
-                <Legend />
-                <Line
-                  type="monotone"
-                  dataKey={(entry) => entry.isForecast ? null : entry.emigrants}
-                  stroke="#82ca9d"
-                  strokeWidth={2}
-                  name="Emigrants (Historical)"
-                  dot={(props) => {
-                    const { cx, cy, payload } = props;
-                    if (payload.isForecast || !payload.emigrants) return null;
-                    return <circle cx={cx} cy={cy} r={3} fill="#82ca9d" />;
-                  }}
-                  connectNulls={false}
-                />
-                <Line
-                  type="monotone"
-                  dataKey={(entry) => entry.isForecast ? entry.emigrants : null}
-                  stroke="#9b59b6"
-                  strokeWidth={2}
-                  strokeDasharray="5 5"
-                  name="Emigrants (MLP Forecast)"
-                  dot={(props) => {
-                    const { cx, cy, payload } = props;
-                    if (!payload.isForecast || !payload.emigrants) return null;
-                    return <circle cx={cx} cy={cy} r={4} fill="#9b59b6" />;
-                  }}
-                  connectNulls={false}
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-
-          <div className="forecast-results">
-            <h3>MLP Forecast Results</h3>
-            <table>
-              <thead>
-                <tr>
-                  <th>Year</th>
-                  <th>Predicted Emigrants</th>
-                </tr>
-              </thead>
-              <tbody>
-                {forecasts.map((f, i) => (
-                  <tr key={i}>
-                    <td>{f.year}</td>
-                    <td>{f.emigrants.toLocaleString()}</td>
-                  </tr>
-                ))}
+                {forecasts.map((f, i) => {
+                  const male = Number.isFinite(f.male) ? f.male.toLocaleString() : '—';
+                  const female = Number.isFinite(f.female) ? f.female.toLocaleString() : '—';
+                  const total = Number.isFinite(f.total) ? f.total.toLocaleString() : '—';
+                  return (
+                    <tr key={i}>
+                      <td>{f.year}</td>
+                      <td>{male}</td>
+                      <td>{female}</td>
+                      <td>{total}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
