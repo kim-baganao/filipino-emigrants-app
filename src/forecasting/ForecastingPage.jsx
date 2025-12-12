@@ -3,7 +3,7 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Responsi
 import { getEmigrantsBySex } from '../services/emigrantsService'
 import './ForecastingPage.css'
 
-// Simple error boundary to keep the page from going blank if the model components throw
+// Error boundary for LSTM component
 class LSTMErrorBoundary extends React.Component {
   constructor(props) {
     super(props)

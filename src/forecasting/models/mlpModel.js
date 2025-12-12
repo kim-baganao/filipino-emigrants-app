@@ -4,8 +4,8 @@ import * as tf from '@tensorflow/tfjs';
  * Build MLP (Multi-Layer Perceptron) Model for Time Series Forecasting
  * Architecture:
  * - Input: Flattened sequence [lookback * features]
- * - Dense Layer 1: 64 units, ReLU activation, dropout 0.2
- * - Dense Layer 2: 32 units, ReLU activation, dropout 0.2
+ * - Dense Layer 1: 56 units, tanh activation, dropout 0.2
+ * - Dense Layer 2: 74 units, tanh activation, dropout 0.2
  * - Dense Output: 1 unit (emigrants prediction)
  * - Loss: MSE (Mean Squared Error)
  * - Optimizer: Adam (lr=0.001)
